@@ -1,0 +1,48 @@
+
+name: Deploy Azure Function
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Zip function
+        run: zip -r function.zip .
+
+      - name: Azure CLI login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Upload to Blob
+        run: |
+          az storage blob upload \
+            --account-name sampleworkflow \
+            --container-name function-deploy \
+            --name function.zip \
+            --file function.zip
+
+      - name: Generate SAS and update Function App
+        run: |
+          SAS_TOKEN=$(az storage blob generate-sas \
+            --account-name sampleworkflow \
+            --container-name function-deploy \
+            --name function.zip \
+            --permissions r \
+            --expiry $(date -u -d "1 day" '+%Y-%m-%dT%H:%MZ') \
+            --https-only \
+            --output tsv)
+          az functionapp config appsettings set \
+            --name basics \
+            --resource-group Sample \
+            --settings WEBSITE_RUN_FROM_PACKAGE="https://sampleworkflow.blob.core.windows.net/function-deploy/function.zip?$SAS_TOKEN"
+
+      - name: Test Function Endpoint
+        run: |
+          curl "https://basics.azurewebsites.net/api/HelloWorld?code=${{ secrets.AZURE_FUNCTION_KEY }}"
