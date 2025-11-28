@@ -15,6 +15,11 @@ jobs:
       - name: Zip function
         run: zip -r function.zip .
 
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
       - name: Azure CLI login
         uses: azure/login@v1
         with:
@@ -46,3 +51,6 @@ jobs:
       - name: Test Function Endpoint
         run: |
           curl "https://basics.azurewebsites.net/api/HelloWorld?code=${{ secrets.AZURE_FUNCTION_KEY }}"
+
+       
+      
