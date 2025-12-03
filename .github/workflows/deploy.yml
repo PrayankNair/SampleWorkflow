@@ -35,6 +35,7 @@ jobs:
             --container-name function-deploy \
             --name function.zip \
             --file function.zip
+            --overwrite
 
       - name: Generate SAS and update Function App
         run: |
