@@ -36,6 +36,7 @@ jobs:
             --name function.zip \
             --file function.zip
             --overwrite
+            --auth-mode login
 
       - name: Generate SAS and update Function App
         run: |
