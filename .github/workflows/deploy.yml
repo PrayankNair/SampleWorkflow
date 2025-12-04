@@ -52,10 +52,19 @@ jobs:
             --name basics \
             --resource-group Sample \
             --settings WEBSITE_RUN_FROM_PACKAGE="https://sampleworkflow.blob.core.windows.net/function-deploy/function.zip?$SAS_TOKEN"
+       
+      - name: Get Function App URL
+        id: get-url
+        run: |
+          URL=$(az functionapp show --name basics --resource-group Sample --query defaultHostName -o tsv)
+          echo "URL=https://$URL" >> $GITHUB_ENV
+     
 
+      
       - name: Test Function Endpoint
         run: |
-          curl "https://basics.azurewebsites.net/api/HelloWorld?code=${{ secrets.AZURE_FUNCTION_KEY }}"
+          curl "${{ env.URL }}/api/HelloWorld?code=${{ secrets.AZURE_FUNCTION_KEY }}"
+
 
        
       
