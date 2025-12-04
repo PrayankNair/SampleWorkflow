@@ -28,15 +28,15 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
 
-      - name: Upload to Blob
+      
+      - name: Sync Blob to Storage
         run: |
-          az storage blob upload \
+          az storage blob sync \
             --account-name sampleworkflow \
-            --container-name function-deploy \
-            --name function.zip \
-            --file function.zip
-            --overwrite
+            --container function-deploy \
+            --source . \
             --auth-mode login
+
 
       - name: Generate SAS and update Function App
         run: |
