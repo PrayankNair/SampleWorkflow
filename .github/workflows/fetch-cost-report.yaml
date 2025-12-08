@@ -46,11 +46,6 @@ jobs:
             --end-date $(date -u '+%Y-%m-%d') \
             -o json > cost-report.json
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: cost-report
-          path: cost-report.json
 
       - name: Convert JSON to Excel
         run: |
