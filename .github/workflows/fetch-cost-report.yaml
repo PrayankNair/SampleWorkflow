@@ -51,3 +51,23 @@ jobs:
         with:
           name: cost-report
           path: cost-report.json
+
+      - name: Convert JSON to Excel
+        run: |
+          pip install pandas openpyxl
+          python - <<EOF
+          import pandas as pd
+          import json
+
+          with open('cost-report.json') as f:
+            data = json.load(f)
+
+          df = pd.json_normalize(data)
+          df.to_excel('cost-report.xlsx', index=False)
+
+          
+      - name: Upload Excel Report
+        uses: actions/upload-artifact@v3
+        with:
+          name: cost-report
+          path: cost-report.xlsx
