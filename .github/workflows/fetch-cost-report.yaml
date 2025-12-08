@@ -30,7 +30,7 @@ jobs:
       - name: Get Cost Details
         run: |
           az consumption usage list \
-            --subscription <your-subscription-id> \
+            --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }} \
             --start-date $(date -u -d "1 day ago" '+%Y-%m-%d') \
             --end-date $(date -u '+%Y-%m-%d') \
             --query "[].{Date:usageStart, Resource:instanceName, ResourceType:instanceId, Service:meterDetails.meterName, Cost:pretaxCost}" \
