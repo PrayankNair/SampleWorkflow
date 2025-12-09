@@ -44,9 +44,14 @@ jobs:
       # Step 3: Fetch Cost Details
       
      
-      - name: Get Cost Analysis
+      
+      - name: Get Cost Analysis via REST
         run: |
-          az costmanagement --query --type Usage --scope /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }} --timeframe MonthToDate --dataset-aggregation totalCost=sum --dataset-grouping name=ResourceId type=Dimension -o json > cost-analysis.json
+          az rest --method post \
+            --uri "https://management.azure.com/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/providers/Microsoft.CostManagement/query?api-version=2023-03-01" \
+            --body '{"type":"Usage","timeframe":"MonthToDate","dataset":{"granularity":"None","aggregation":{"totalCost":{"name":"PreTaxCost","function":"Sum"}},"grouping":[{"type":"Dimension","name":"ResourceId"}]}}' \
+            -o json > cost-analysis.json
+
 
 
 
