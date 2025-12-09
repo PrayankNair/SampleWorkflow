@@ -30,7 +30,7 @@ jobs:
       
       - name: Get Cost Analysis
         run: |
-          az costmanagement query \
+          az costmngmnt query \
             --type Usage \
             --scope /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }} \
             --timeframe MonthToDate \
