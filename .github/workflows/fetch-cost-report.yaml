@@ -35,6 +35,11 @@ jobs:
         run: |
           az extension add --name costmanagement
 
+          
+      - name: Verify Cost Management Extension
+        run: |
+
+
 
       # Step 3: Fetch Cost Details
       
