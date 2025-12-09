@@ -27,14 +27,17 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       # Step 3: Fetch Cost Details
-      - name: Get Cost Details
+      
+      - name: Get Cost Analysis
         run: |
-          az consumption usage list \
-            --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }} \
-            --start-date $(date -u -d "1 day ago" '+%Y-%m-%d') \
-            --end-date $(date -u '+%Y-%m-%d') \
-            --query "[].{Date:usageStart, Resource:instanceName, ResourceType:instanceId, Service:meterDetails.meterName, Cost:pretaxCost}" \
- 
+          az costmanagement query \
+            --type Usage \
+            --scope /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }} \
+            --timeframe MonthToDate \
+            --dataset-aggregation totalCost=sum \
+            --dataset-grouping name=ResourceId type=Dimension \
+            -o json > cost-analysis.json
+
 
 
       # Step 4: Save as Artifact
