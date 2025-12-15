@@ -13,6 +13,11 @@ jobs:
   fetch-costs:
     runs-on: ubuntu-latest
     steps:
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas openpyxl
+
       # Step 1: Checkout (optional if storing scripts)
       - name: Checkout code
         uses: actions/checkout@v4
@@ -101,6 +106,7 @@ jobs:
           wb.save(out_path)
       
           print(f"✅ Pivot Excel created successfully with AUD currency format: {out_path}")
+          PY
    
 
       # Step 4: Save as Artifact
