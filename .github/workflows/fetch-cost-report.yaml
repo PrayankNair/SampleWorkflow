@@ -1,3 +1,7 @@
+import json
+import pandas as pd
+from openpyxl import load_workbook
+from openpyxl.styles import numbers
 
 name: Fetch Azure Cost Details
 on:
@@ -49,11 +53,60 @@ jobs:
         run: |
           az rest --method post \
             --uri "https://management.azure.com/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/providers/Microsoft.CostManagement/query?api-version=2023-03-01" \
-            --body '{"type":"Usage","timeframe":"MonthToDate","dataset":{"granularity":"None","aggregation":{"totalCost":{"name":"PreTaxCost","function":"Sum"}},"grouping":[{"type":"Dimension","name":"ResourceId"}]}}' \
+            --body '{"type":"Usage","timeframe":"MonthToDate","dataset":{"granularity":"None","aggregation":{"totalCost":{"name":"PreTaxCost","function":"Sum"}},"grouping":[{"type":"Dimension","name":"ResourceType"}]}}' \
             -o json > cost-analysis.json
 
-
-
+            
+        
+      - name: Convert to Pivot Excel (ResourceType → Sum of Cost, AUD)
+        run: |
+          python - <<'PY'
+          import json
+          import pandas as pd
+          from openpyxl import load_workbook
+      
+          # 1) Load JSON
+          with open('cost-analysis.json', 'r', encoding='utf-8') as f:
+              data = json.load(f)
+      
+          # 2) Extract rows and build DataFrame
+          rows = data.get('properties', {}).get('rows', [])
+          df = pd.DataFrame(rows, columns=['ResourceType', 'totalCost'])
+      
+          # 3) Clean data
+          df['ResourceType'] = df['ResourceType'].fillna('(blank)')
+          df['totalCost'] = pd.to_numeric(df['totalCost'], errors='coerce').fillna(0)
+      
+          # 4) Aggregate and sort
+          pivot = df.groupby('ResourceType', dropna=False)['totalCost'].sum().reset_index()
+          pivot = pivot.sort_values('totalCost', ascending=False)
+      
+          # 5) Rename columns
+          pivot.columns = ['Row Labels', 'Sum of Cost']
+      
+          # 6) Add Grand Total
+          grand_total = pivot['Sum of Cost'].sum()
+          pivot.loc[len(pivot)] = ['Grand Total', grand_total]
+      
+          # 7) Export to Excel (no styling)
+          out_path = 'cost-analysis-pivot.xlsx'
+          pivot.to_excel(out_path, index=False)
+      
+          # 8) Apply AUD currency format ONLY to "Sum of Cost" column
+          wb = load_workbook(out_path)
+          ws = wb.active
+          # Australian Dollar format using the dollar symbol with two decimals
+          # Note: Excel displays $ as local currency; for strict AUD display, keep the "$" format.
+          aud_format = '"$" #,##0.00'
+          sum_col_idx = 2  # Column index of "Sum of Cost"
+      
+          for row in range(2, ws.max_row + 1):
+              ws.cell(row=row, column=sum_col_idx).number_format = aud_format
+      
+          wb.save(out_path)
+      
+          print(f"✅ Pivot Excel created successfully with AUD currency format: {out_path}")
+   
 
       # Step 4: Save as Artifact
       - name: Save Cost Report
