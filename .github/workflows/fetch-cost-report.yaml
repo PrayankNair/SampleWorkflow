@@ -1,8 +1,3 @@
-import json
-import pandas as pd
-from openpyxl import load_workbook
-from openpyxl.styles import numbers
-
 name: Fetch Azure Cost Details
 on:
   push:
