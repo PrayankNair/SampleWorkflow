@@ -71,7 +71,8 @@ jobs:
       
           # 2) Extract rows and build DataFrame
           rows = data.get('properties', {}).get('rows', [])
-          df = pd.DataFrame(rows, columns=['ResourceType', 'totalCost'])
+          rows2 = [[r[0], r[1]] for r in rows if len(r) >= 2]
+          df = pd.DataFrame(rows2, columns=['ResourceType', 'totalCost'])
       
           # 3) Clean data
           df['ResourceType'] = df['ResourceType'].fillna('(blank)')
