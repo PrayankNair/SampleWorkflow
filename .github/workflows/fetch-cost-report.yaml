@@ -16,8 +16,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pandas openpyxl
-
+          pip install pandas XlsxWriter
       # Step 1: Checkout (optional if storing scripts)
       - name: Checkout code
         uses: actions/checkout@v4
@@ -64,9 +63,14 @@ jobs:
           import json
           import pandas as pd
           from openpyxl import load_workbook
+
+          
+          in_path = 'cost-analysis.json'
+          out_path = 'cost-analysis-pivot.xlsx'
+
       
           # 1) Load JSON
-          with open('cost-analysis.json', 'r', encoding='utf-8') as f:
+          with open(in_path, 'r', encoding='utf-8') as f:
               data = json.load(f)
       
           # 2) Extract rows and build DataFrame
@@ -76,66 +80,65 @@ jobs:
       
           # 3) Clean data
           df['ResourceType'] = df['ResourceType'].fillna('(blank)')
-          df['totalCost'] = pd.to_numeric(df['totalCost'], errors='coerce').fillna(0)
-      
-          # 4) Aggregate and sort
-          pivot = df.groupby('ResourceType', dropna=False)['totalCost'].sum().reset_index()
-          pivot = pivot.sort_values('totalCost', ascending=False)
-      
-          # 5) Rename columns
-          pivot.columns = ['Row Labels', 'Sum of Cost']
-      
-          # 6) Add Grand Total
-          grand_total = pivot['Sum of Cost'].sum()
-          pivot.loc[len(pivot)] = ['Grand Total', grand_total]
-      
-          # 7) Export to Excel (no styling)
-          out_path = 'cost-analysis-pivot.xlsx'
-          pivot.to_excel(out_path, index=False)
-      
-          # 8) Apply AUD currency format ONLY to "Sum of Cost" column
-          wb = load_workbook(out_path)
-          ws = wb.active
-          # Australian Dollar format using the dollar symbol with two decimals
-          # Note: Excel displays $ as local currency; for strict AUD display, keep the "$" format.
-          aud_format = '"$" #,##0.00'
-          sum_col_idx = 2  # Column index of "Sum of Cost"
-      
-          for row in range(2, ws.max_row + 1):
-              ws.cell(row=row, column=sum_col_idx).number_format = aud_format
-      
-          wb.save(out_path)
-      
-          print(f"✅ Pivot Excel created successfully with AUD currency format: {out_path}")
-          PY
-   
-
-      # Step 4: Save as Artifact
-      - name: Save Cost Report
-        run: |
-          az consumption usage list \
-            --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }} \
-            --start-date $(date -u -d "1 day ago" '+%Y-%m-%d') \
-            --end-date $(date -u '+%Y-%m-%d') \
-            -o json > cost-report.json
-
-
-      - name: Convert JSON to Excel
-        run: |
-          pip install pandas openpyxl
-          python - <<EOF
-          import pandas as pd
-          import json
-
-          with open('cost-report.json') as f:
-            data = json.load(f)
-
-          df = pd.json_normalize(data)
-          df.to_excel('cost-report.xlsx', index=False)
+          df['totalCost'] = pd.to_numeric(df['totalCost'], errors='coerce').fillna(0.0)
 
           
-      - name: Upload Excel Report
-        uses: actions/upload-artifact@v4
-        with:
-          name: cost-report
-          path: cost-report.xlsx
+          # 4) Write raw data and create a real PivotTable with XlsxWriter
+          with pd.ExcelWriter(out_path, engine='xlsxwriter') as writer:
+          # Write raw data to "Data" sheet (required for pivot cache)
+          df.to_excel(writer, sheet_name='Data', index=False)
+          
+          workbook  = writer.book
+          data_ws   = writer.sheets['Data']
+
+      
+    # Create a new sheet for the pivot
+          pivot_ws  = workbook.add_worksheet('Pivot')
+
+          
+    # Find the last row of the data range
+          nrows = len(df) + 1  # +1 for header row
+          ncols = len(df.columns)
+
+          
+    # Define the source range A1:Bx (A=ResourceType, B=totalCost)
+          data_range = f"'Data'!A1:{chr(ord('A') + ncols - 1)}{nrows}"
+
+          
+    # Add a PivotTable
+          # Place the pivot starting at cell A3 in the Pivot sheet
+          pivot_ws.add_pivot_table({
+              'name':        'PivotCost',
+              'source':      data_range,
+              'destination': 'Pivot!A3',
+
+              
+    # Configure fields:
+              # Row field -> ResourceType
+              # Values    -> Sum of totalCost
+              'fields': {
+                  'rows':   [{'name': 'ResourceType'}],
+                  'values': [{'name': 'totalCost', 'function': 'sum'}],
+              }
+          })
+
+          
+          pivot_ws.write('A1', 'Cost by ResourceType (Pivot)')
+          pivot_ws.set_column('A:D', 18)
+
+
+          aud_fmt = workbook.add_format({'num_format': '[$-en-AU]$ #,##0.00'})
+          
+          pivot_ws.set_column('B:B', 18, aud_fmt)
+
+          
+          print(f"✅ Created Excel with REAL PivotTable: {out_path}")
+          PY
+
+          
+      
+        - name: Upload Pivot Excel
+          uses: actions/upload-artifact@v4
+          with:
+              name: cost-analysis-pivot
+              path: cost-analysis-pivot.xlsx
