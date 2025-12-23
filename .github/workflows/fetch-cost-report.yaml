@@ -1,8 +1,10 @@
+
 name: Fetch Azure Cost Details
+
 on:
   push:
     branches:
-      -costmngmnt
+      - costmngmnt         # <-- space after '-' is required
   workflow_dispatch:       # Allows manual trigger
 
 permissions:
@@ -12,133 +14,123 @@ permissions:
 jobs:
   fetch-costs:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pandas XlsxWriter
-      # Step 1: Checkout (optional if storing scripts)
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Step 2: Azure Login using OIDC
+      - name: Install Python dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install pandas XlsxWriter openpyxl
+
+      # Azure login using OIDC
       - name: Azure Login
         uses: azure/login@v1
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      
+
       - name: Update Azure CLI
         run: |
           curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
 
-         
       - name: Install Cost Management Extension
         run: |
           az extension add --name costmanagement
 
-          
       - name: Verify Cost Management Extension
         run: |
+          az extension show --name costmanagement
 
-
-
-      # Step 3: Fetch Cost Details
-      
-     
-      
       - name: Get Cost Analysis via REST
         run: |
+          # Safer than inlining complex JSON with quotes; write a temp file
+          cat > body.json << 'JSON'
+          {
+            "type": "Usage",
+            "timeframe": "MonthToDate",
+            "dataset": {
+              "granularity": "None",
+              "aggregation": {
+                "totalCost": { "name": "PreTaxCost", "function": "Sum" }
+              },
+              "grouping": [
+                { "type": "Dimension", "name": "ResourceType" }
+              ]
+            }
+          }
+          JSON
+
           az rest --method post \
             --uri "https://management.azure.com/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/providers/Microsoft.CostManagement/query?api-version=2023-03-01" \
-            --body '{"type":"Usage","timeframe":"MonthToDate","dataset":{"granularity":"None","aggregation":{"totalCost":{"name":"PreTaxCost","function":"Sum"}},"grouping":[{"type":"Dimension","name":"ResourceType"}]}}' \
+            --body @body.json \
             -o json > cost-analysis.json
 
-            
-        
-      - name: Convert to Pivot Excel (ResourceType → Sum of Cost, AUD)
+      - name: Convert to Pivot Excel (ResourceType -> Sum of Cost, AUD)
         run: |
-          python - <<'PY'
+          python3 << 'PY'
           import json
           import pandas as pd
-          from openpyxl import load_workbook
 
-          
           in_path = 'cost-analysis.json'
           out_path = 'cost-analysis-pivot.xlsx'
 
-      
           # 1) Load JSON
           with open(in_path, 'r', encoding='utf-8') as f:
-              data = json.load(f)
-      
+            data = json.load(f)
+
           # 2) Extract rows and build DataFrame
           rows = data.get('properties', {}).get('rows', [])
-          rows2 = [[r[0], r[1]] for r in rows if len(r) >= 2]
+          rows2 = [[r[0], r[1]] for r in rows if isinstance(r, list) and len(r) >= 2]
           df = pd.DataFrame(rows2, columns=['ResourceType', 'totalCost'])
-      
+
           # 3) Clean data
           df['ResourceType'] = df['ResourceType'].fillna('(blank)')
           df['totalCost'] = pd.to_numeric(df['totalCost'], errors='coerce').fillna(0.0)
 
-          
-          # 4) Write raw data and create a real PivotTable with XlsxWriter
+          # 4) Write raw data and create a PivotTable with XlsxWriter
           with pd.ExcelWriter(out_path, engine='xlsxwriter') as writer:
-          # Write raw data to "Data" sheet (required for pivot cache)
-          df.to_excel(writer, sheet_name='Data', index=False)
-          
-          workbook  = writer.book
-          data_ws   = writer.sheets['Data']
+            # Write raw data to "Data" sheet
+            df.to_excel(writer, sheet_name='Data', index=False)
 
-      
-    # Create a new sheet for the pivot
-          pivot_ws  = workbook.add_worksheet('Pivot')
+            workbook  = writer.book
+            data_ws   = writer.sheets['Data']
 
-          
-    # Find the last row of the data range
-          nrows = len(df) + 1  # +1 for header row
-          ncols = len(df.columns)
+            # Create a new sheet for the pivot
+            pivot_ws  = workbook.add_worksheet('Pivot')
 
-          
-    # Define the source range A1:Bx (A=ResourceType, B=totalCost)
-          data_range = f"'Data'!A1:{chr(ord('A') + ncols - 1)}{nrows}"
+            # Find the last row of the data range
+            nrows = len(df) + 1  # +1 for header
+            ncols = len(df.columns)
 
-          
-    # Add a PivotTable
-          # Place the pivot starting at cell A3 in the Pivot sheet
-          pivot_ws.add_pivot_table({
+            # Define the source range, e.g., 'Data'!A1:B{n}
+            # 2 columns -> A and B
+            data_range = f"'Data'!A1:{chr(ord('A') + ncols - 1)}{nrows}"
+
+            # Add the PivotTable starting at A3
+            pivot_ws.add_pivot_table({
               'name':        'PivotCost',
               'source':      data_range,
               'destination': 'Pivot!A3',
-
-              
-    # Configure fields:
-              # Row field -> ResourceType
-              # Values    -> Sum of totalCost
               'fields': {
-                  'rows':   [{'name': 'ResourceType'}],
-                  'values': [{'name': 'totalCost', 'function': 'sum'}],
+                'rows':   [{'name': 'ResourceType'}],
+                'values': [{'name': 'totalCost', 'function': 'sum'}],
               }
-          })
+            })
 
-          
-          pivot_ws.write('A1', 'Cost by ResourceType (Pivot)')
-          pivot_ws.set_column('A:D', 18)
+            # Title and formatting
+            pivot_ws.write('A1', 'Cost by ResourceType (Pivot)')
+            aud_fmt = workbook.add_format({'num_format': '[$-en-AU]$ #,##0.00'})
+            pivot_ws.set_column('A:D', 18)
+            pivot_ws.set_column('B:B', 18, aud_fmt)
 
-
-          aud_fmt = workbook.add_format({'num_format': '[$-en-AU]$ #,##0.00'})
-          
-          pivot_ws.set_column('B:B', 18, aud_fmt)
-
-          
           print(f"✅ Created Excel with REAL PivotTable: {out_path}")
           PY
 
-          
-      
       - name: Upload Pivot Excel
-          uses: actions/upload-artifact@v4
-          with:
-              name: cost-analysis-pivot
-              path: cost-analysis-pivot.xlsx
+        uses: actions/upload-artifact@v4
+        with:
+          name: cost-analysis-pivot
+          path: cost-analysis-pivot.xlsx
