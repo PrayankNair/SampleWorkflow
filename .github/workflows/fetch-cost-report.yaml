@@ -22,7 +22,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           python3 -m pip install --upgrade pip
-          pip install "XlsxWriter>=3.2.0" pandas openpyxl
+          pip install "XlsxWriter>=3.2.0" pandas
 
           
       - name: Verify XlsxWriter version
@@ -74,12 +74,25 @@ jobs:
             --body @body.json \
             -o json > cost-analysis.json
 
+            
+      - name: Verify XlsxWriter version
+              run: |
+                python3 - << 'PY'
+                import pandas as pd
+                import xlsxwriter, sys
+                print("python:", sys.version)
+                print("xlsxwriter:", xlsxwriter.__version__)
+                # Optional guard to fail fast if too old:
+                from packaging import version
+                if version.parse(xlsxwriter.__version__) < version.parse("3.2.0"):
+                    raise SystemExit("XlsxWriter is too old; need >= 3.2.0")
+                PY
+
+
       - name: Convert to Pivot Excel (ResourceType -> Sum of Cost, AUD)
         run: |
-          python3 << 'PY'
-          import json
-          import pandas as pd
-
+            import json
+  
           in_path = 'cost-analysis.json'
           out_path = 'cost-analysis-pivot.xlsx'
 
