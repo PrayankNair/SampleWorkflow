@@ -76,8 +76,8 @@ jobs:
 
             
       - name: Verify XlsxWriter version
-              run: |
-                python3 - << 'PY'
+        run: |
+                python3 << 'PY'
                 import pandas as pd
                 import xlsxwriter, sys
                 print("python:", sys.version)
