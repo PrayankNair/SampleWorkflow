@@ -22,7 +22,13 @@ jobs:
       - name: Install Python dependencies
         run: |
           python3 -m pip install --upgrade pip
-          pip install pandas XlsxWriter openpyxl
+          pip install "XlsxWriter>=3.2.0" pandas openpyxl
+
+          
+      - name: Verify XlsxWriter version
+        run: |
+          python3 -c "import xlsxwriter; print('XlsxWriter version:', xlsxwriter.__version__)"
+
 
       # Azure login using OIDC
       - name: Azure Login
