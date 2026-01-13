@@ -56,9 +56,18 @@ jobs:
           az account set --subscription "$TARGET_SUB_ID"
           az graph query -q "$QUERY" --subscriptions "$TARGET_SUB_ID" --output json > active_vms.json
 
-          jq -r '["name","resourceGroup","location","subscriptionId","powerState"], (.[] | [.name, .resourceGroup, .location, .subscriptionId, .powerState]) | @csv' active_vms.json > active_vms.csv
+          
+          jq -r '
+            .data
+            | (["name","resourceGroup","location","subscriptionId","powerState"]),
+              (.[] | [ .name, .resourceGroup, .location, .subscriptionId, .powerState ])
+            | @csv
+          ' active_vms.json > active_vms.csv
 
-          echo "count=$(jq 'length' active_vms.json)" >> $GITHUB_OUTPUT
+
+          
+          echo "count=$(jq '.data | length' active_vms.json)" >> $GITHUB_OUTPUT
+
 
       # 5) Upload results (artifacts)
       - name: Upload results
