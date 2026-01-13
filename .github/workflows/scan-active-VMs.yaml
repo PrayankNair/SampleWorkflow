@@ -86,10 +86,11 @@ jobs:
       - name: Upload results
         uses: actions/upload-artifact@v4
         with:
-          name: active-vms
+          name: vm-inventory-${{ github.run_number }}
           path: |
             active_vms.json
             active_vms.csv
+          if-no-files-found: error
 
       # 6) (Optional) Print summary in job logs
       - name: Summary
