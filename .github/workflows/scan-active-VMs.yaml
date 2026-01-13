@@ -1,0 +1,76 @@
+
+name: Scan active VMs in subscription (OIDC)
+
+on:
+  workflow_dispatch:
+    inputs:
+      subscriptionId:
+        description: "Azure subscription to scan (optional; defaults to AZURE_SUBSCRIPTION_ID secret)"
+        required: false
+        type: string
+  schedule:
+    - cron: "0 3 * * *"  # run daily at 03:00 UTC (adjust as needed)
+
+permissions:
+  id-token: write      # REQUIRED for OIDC token
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1) Checkout (optional if you want to keep queries in repo files)
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2) Login to Azure using OIDC (no secrets)
+      - name: Login to Azure (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ inputs.subscriptionId || secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # 3) Ensure Resource Graph CLI extension is available
+      - name: Install Resource Graph CLI extension
+        run: |
+          az extension add --name resource-graph || az extension update --name resource-graph
+
+      # 4) Query Resource Graph to find VMs with power state 'running'
+      - name: Query active (running) VMs
+        id: arg
+        shell: bash
+        env:
+          TARGET_SUB_ID: ${{ inputs.subscriptionId || secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          # KQL: running VMs across a subscription using powerState from instanceView
+          # Note: powerState is available in properties.extended.instanceView.powerState
+          QUERY="Resources
+          | where type =~ 'microsoft.compute/virtualmachines'
+          | extend powerState = tostring(properties.extended.instanceView.powerState.code)
+          | where powerState == 'PowerState/running'
+          | project name, resourceGroup, location, subscriptionId, powerState
+          | order by name asc"
+
+          az account set --subscription "$TARGET_SUB_ID"
+          az graph query -q "$QUERY" --subscriptions "$TARGET_SUB_ID" --output json > active_vms.json
+
+          jq -r '["name","resourceGroup","location","subscriptionId","powerState"], (.[] | [.name, .resourceGroup, .location, .subscriptionId, .powerState]) | @csv' active_vms.json > active_vms.csv
+
+          echo "count=$(jq 'length' active_vms.json)" >> $GITHUB_OUTPUT
+
+      # 5) Upload results (artifacts)
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: active-vms
+          path: |
+            active_vms.json
+            active_vms.csv
+
+      # 6) (Optional) Print summary in job logs
+      - name: Summary
+        run: |
+          echo "Active VM count: ${{ steps.arg.outputs.count }}"
+          head -n 20 active_vms.csv || true
