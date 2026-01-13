@@ -5,11 +5,10 @@ on:
   workflow_dispatch:
     inputs:
       subscriptionId:
-        description: "Azure subscription to scan (optional; defaults to AZURE_SUBSCRIPTION_ID secret)"
         required: false
         type: string
   schedule:
-    - cron: "0 3 * * *"  # run daily at 03:00 UTC (adjust as needed)
+    - cron: "0 3 2 * *"  
 
 permissions:
   id-token: write      # REQUIRED for OIDC token
@@ -20,11 +19,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1) Checkout (optional if you want to keep queries in repo files)
+      # 1) Checkout
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 2) Login to Azure using OIDC (no secrets)
+      # 2) Login to Azure using OIDC
       - name: Login to Azure (OIDC)
         uses: azure/login@v2
         with:
@@ -38,35 +37,49 @@ jobs:
           az extension add --name resource-graph || az extension update --name resource-graph
 
       # 4) Query Resource Graph to find VMs with power state 'running'
-      - name: Query active (running) VMs
-        id: arg
-        shell: bash
+      
+      - name: Running VMs
+        shell: pwsh
         env:
           TARGET_SUB_ID: ${{ inputs.subscriptionId || secrets.AZURE_SUBSCRIPTION_ID }}
         run: |
-          # KQL: running VMs across a subscription using powerState from instanceView
-          # Note: powerState is available in properties.extended.instanceView.powerState
-          QUERY="Resources
-          | where type =~ 'microsoft.compute/virtualmachines'
-          | extend powerState = tostring(properties.extended.instanceView.powerState.code)
-          | where powerState == 'PowerState/running'
-          | project name, resourceGroup, location, subscriptionId, powerState
-          | order by name asc"
+          $ErrorActionPreference = 'Stop'
+          az account set --subscription $env:TARGET_SUB_ID | Out-Null
+      
+          # Get VMs with instance view
+          $vms = az vm list --show-details --subscription $env:TARGET_SUB_ID --output json | ConvertFrom-Json
+      
+          # Filter running and select fields
+          $running = $vms | Where-Object { $_.powerState -eq 'VM running' } |
+             Select-Object @{
+              n = 'VM name'; e = { $_.name }
+            }, @{
+              n = 'Subscription'; e = { $subscriptionName }
+            }, @{
+              n = 'Resource group'; e = { $_.resourceGroup }
+            }, @{
+              n = 'Location'; e = { $_.location }
+            }, @{
+              n = 'Status'; e = { $_.powerState } # e.g., "VM running"
+            }, @{
+              n = 'OS name'; e = { $_.storageProfile.osDisk.osType } # Windows / Linux
+            }, @{
+              n = 'Disk size (GB)'; e = { $_.storageProfile.osDisk.diskSizeGb }
+            }
 
-          az account set --subscription "$TARGET_SUB_ID"
-          az graph query -q "$QUERY" --subscriptions "$TARGET_SUB_ID" --output json > active_vms.json
+      
+          $running | ConvertTo-Json -Depth 6 | Out-File active_vms.json -Encoding utf8
+      
+          # CSV export
+          $running | ConvertTo-Csv -NoTypeInformation | Out-File active_vms.csv -Encoding utf8
+      
+          # Count output variable
+          $count = $running.Count
+          Write-Output "count=$count" >> $env:GITHUB_OUTPUT
+      
+          # Preview
+          Get-Content active_vms.csv | Select-Object -First 20
 
-          
-          jq -r '
-            .data
-            | (["name","resourceGroup","location","subscriptionId","powerState"]),
-              (.[] | [ .name, .resourceGroup, .location, .subscriptionId, .powerState ])
-            | @csv
-          ' active_vms.json > active_vms.csv
-
-
-          
-          echo "count=$(jq '.data | length' active_vms.json)" >> $GITHUB_OUTPUT
 
 
       # 5) Upload results (artifacts)
