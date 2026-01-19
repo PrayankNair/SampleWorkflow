@@ -1,5 +1,5 @@
 
-name: Scan Azure VMs and build Excel (no ARG)
+name: Scan Azure VMs
 
 on:
   # Manual trigger with optional subscription override
@@ -35,109 +35,28 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ env.TARGET_SUB_ID }}
 
-      - name: Capture subscription name
-        id: subname
-        shell: bash
-        working-directory: ${{ github.workspace }}
+      
+      - name: List VMs and write summary (PowerShell)
+        shell: pwsh
         run: |
-          set -e
-          az account set --subscription "$TARGET_SUB_ID"
-          SUB_NAME=$(az account show --query name -o tsv)
-          echo "sub_name=$SUB_NAME" >> $GITHUB_OUTPUT
-
-      - name: List VMs with details (no Resource Graph)
-        shell: bash
-        working-directory: ${{ github.workspace }}
-        run: |
-          set -eo pipefail
-          # Ensure jq is present (usually preinstalled on ubuntu-latest)
-          if ! command -v jq >/dev/null 2>&1; then
-            sudo apt-get update && sudo apt-get install -y jq
-          fi
-
-          az vm list --show-details --subscription "$TARGET_SUB_ID" --output json > vms_all.json
-          echo "VM count (raw): $(jq 'length' vms_all.json)"
-          # Optional preview
-          jq '.[0] | {name, resourceGroup, location, powerState}' vms_all.json || true
-
-      - name: Install Python dependencies for Excel
-        shell: bash
-        run: |
-          python -m pip install --upgrade pip
-          pip install pandas openpyxl
-
-      - name: Build Excel and CSV with selected columns
-        shell: bash
-        working-directory: ${{ github.workspace }}
-        env:
-          SUB_NAME: ${{ steps.subname.outputs.sub_name }}
-        run: |
-          set -euo pipefail
-
-          test -f vms_all.json || { echo "vms_all.json missing"; exit 1; }
-          echo "Building Excel for subscription: ${SUB_NAME}"
-
-          python - << 'PYCODE'
-          import json, os
-          from pathlib import Path
-          import pandas as pd
-
-          src = Path("vms_all.json")
-          txt = src.read_text(encoding="utf-8").strip() if src.exists() else ""
-          data = json.loads(txt) if txt else []
-
-          sub_name = os.environ.get("SUB_NAME","")
-
-          rows = []
-          for vm in data:
-              # Uncomment next two lines to keep only running VMs
-              # if vm.get("powerState") != "VM running":
-              #     continue
-
-              osdisk = (vm.get("storageProfile") or {}).get("osDisk") or {}
-              rows.append({
-                  "VM name":        vm.get("name"),
-                  "Subscription":   sub_name,                     # friendly name
-                  "Resource group": vm.get("resourceGroup"),
-                  "Location":       vm.get("location"),
-                  "Status":         vm.get("powerState"),         # e.g., "VM running"
-                  "OS name":        osdisk.get("osType"),         # Windows / Linux
-                  "Disk size (GB)": osdisk.get("diskSizeGb"),
-              })
-
-          cols = ["VM name","Subscription","Resource group","Location","Status","OS name","Disk size (GB)"]
-          df = pd.DataFrame(rows, columns=cols)
-
-          # Always write CSV and Excel (headers present even with 0 rows)
-          df.to_csv("active_vms.csv", index=False)
-
-          with pd.ExcelWriter("active_vms.xlsx", engine="openpyxl") as writer:
-              df.to_excel(writer, index=False, sheet_name="VMs")
-
-          print(f"Rows written: {len(df)}")
-          PYCODE
-
-          # Quick preview
-          head -n 5 active_vms.csv || true
-
-      - name: Verify outputs exist before upload
-        shell: bash
-        working-directory: ${{ github.workspace }}
-        run: |
-          echo "PWD: $PWD"
-          ls -la
-          test -f active_vms.xlsx || { echo "Excel missing"; exit 1; }
-          test -s active_vms.xlsx || { echo "Excel is zero-bytes"; exit 1; }
-          test -f active_vms.csv   || { echo "CSV missing"; exit 1; }
-          test -s active_vms.csv   || { echo "CSV is zero-bytes"; exit 1; }
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: vm-inventory-${{ github.run_number }}
-          path: |
-            ${{ github.workspace }}/active_vms.xlsx
-            ${{ github.workspace }}/active_vms.csv
-            ${{ github.workspace }}/vms_all.json
-          if-no-files-found: error
-          retention-days: 30
+          az account set --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+          $subName = az account show --query name -o tsv
+          $vms = az vm list --show-details --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}" | ConvertFrom-Json
+      
+          "# Azure VM Inventory — $subName" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          "**VMs found:** $($vms.Count)" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          "| VM name | Resource group | Location | Status | OS | Disk (GB) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          "|---|---|---|---|---|---|" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+      
+          foreach ($vm in $vms) {
+            $name  = $vm.name
+            $rg    = $vm.resourceGroup
+            $loc   = $vm.location
+            $state = $vm.powerState
+            $os    = $vm.storageProfile.osDisk.osType
+            $disk  = $vm.storageProfile.osDisk.diskSizeGb
+            "| $name | $rg | $loc | $state | $os | $disk |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          }
+      
