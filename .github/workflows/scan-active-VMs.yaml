@@ -8,7 +8,6 @@ on:
       subscriptionId:
         required: false
         type: string
-  # 2nd of every month at 03:00 UTC
   schedule:
     - cron: "0 3 2 * *"
 
@@ -21,7 +20,6 @@ jobs:
       contents: read
 
     env:
-      # Use the provided input or fall back to the default secret
       TARGET_SUB_ID: ${{ inputs.subscriptionId || secrets.AZURE_SUBSCRIPTION_ID }}
 
     steps:
@@ -36,19 +34,23 @@ jobs:
           subscription-id: ${{ env.TARGET_SUB_ID }}
 
       
-      - name: List VMs and write summary (PowerShell)
+      - name: List VMs 
         shell: pwsh
         run: |
           az account set --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
           $subName = az account show --query name -o tsv
           $vms = az vm list --show-details --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}" | ConvertFrom-Json
       
-          "# Azure VM Inventory — $subName" | Out-File -Append $env:GITHUB_STEP_SUMMARY
-          "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
-          "**VMs found:** $($vms.Count)" | Out-File -Append $env:GITHUB_STEP_SUMMARY
-          "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
-          "| VM name | Resource group | Location | Status | OS | Disk (GB) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
-          "|---|---|---|---|---|---|" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          
+          $summaryPath = $env:GITHUB_STEP_SUMMARY
+          
+          Add-Content -Path $summaryPath -Value @"
+          **VMs found:** $($vms.Count)
+          
+          | VM name | Resource group | Location | Status | OS | Disk (GB) |
+          |---|---|---|---|---|---|
+          "@
+
       
           foreach ($vm in $vms) {
             $name  = $vm.name
